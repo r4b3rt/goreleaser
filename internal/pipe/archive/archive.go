@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/apex/log"
-	"github.com/campoy/unique"
 	"github.com/goreleaser/fileglob"
 
 	"github.com/goreleaser/goreleaser/internal/artifact"
@@ -46,12 +46,12 @@ func (Pipe) String() string {
 
 // Default sets the pipe defaults.
 func (Pipe) Default(ctx *context.Context) error {
-	var ids = ids.New("archives")
+	ids := ids.New("archives")
 	if len(ctx.Config.Archives) == 0 {
 		ctx.Config.Archives = append(ctx.Config.Archives, config.Archive{})
 	}
 	for i := range ctx.Config.Archives {
-		var archive = &ctx.Config.Archives[i]
+		archive := &ctx.Config.Archives[i]
 		if archive.Format == "" {
 			archive.Format = "tar.gz"
 		}
@@ -59,15 +59,13 @@ func (Pipe) Default(ctx *context.Context) error {
 			archive.ID = "default"
 		}
 		if len(archive.Files) == 0 {
-			archive.Files = []string{
-				"licence*",
-				"LICENCE*",
-				"license*",
-				"LICENSE*",
-				"readme*",
-				"README*",
-				"changelog*",
-				"CHANGELOG*",
+			archive.Files = []config.File{
+				{Source: "license*"},
+				{Source: "LICENSE*"},
+				{Source: "readme*"},
+				{Source: "README*"},
+				{Source: "changelog*"},
+				{Source: "CHANGELOG*"},
 			}
 		}
 		if archive.NameTemplate == "" {
@@ -88,10 +86,10 @@ func (Pipe) Default(ctx *context.Context) error {
 
 // Run the pipe.
 func (Pipe) Run(ctx *context.Context) error {
-	var g = semerrgroup.New(ctx.Parallelism)
+	g := semerrgroup.New(ctx.Parallelism)
 	for i, archive := range ctx.Config.Archives {
 		archive := archive
-		var artifacts = ctx.Artifacts.Filter(
+		artifacts := ctx.Artifacts.Filter(
 			artifact.And(
 				artifact.ByType(artifact.Binary),
 				artifact.ByIDs(archive.Builds...),
@@ -115,7 +113,7 @@ func (Pipe) Run(ctx *context.Context) error {
 }
 
 func checkArtifacts(artifacts map[string][]*artifact.Artifact) error {
-	var lens = map[int]bool{}
+	lens := map[int]bool{}
 	for _, v := range artifacts {
 		lens[len(v)] = true
 	}
@@ -126,7 +124,7 @@ func checkArtifacts(artifacts map[string][]*artifact.Artifact) error {
 }
 
 func create(ctx *context.Context, arch config.Archive, binaries []*artifact.Artifact) error {
-	var format = packageFormat(arch, binaries[0].Goos)
+	format := packageFormat(arch, binaries[0].Goos)
 	folder, err := tmpl.New(ctx).
 		WithArtifact(binaries[0], arch.Replacements).
 		Apply(arch.NameTemplate)
@@ -135,7 +133,7 @@ func create(ctx *context.Context, arch config.Archive, binaries []*artifact.Arti
 	}
 	archivePath := filepath.Join(ctx.Config.Dist, folder+"."+format)
 	lock.Lock()
-	if err := os.MkdirAll(filepath.Dir(archivePath), 0755|os.ModeDir); err != nil {
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755|os.ModeDir); err != nil {
 		lock.Unlock()
 		return err
 	}
@@ -151,7 +149,7 @@ func create(ctx *context.Context, arch config.Archive, binaries []*artifact.Arti
 	lock.Unlock()
 	defer archiveFile.Close()
 
-	var log = log.WithField("archive", archivePath)
+	log := log.WithField("archive", archivePath)
 	log.Info("creating")
 
 	template := tmpl.New(ctx).
@@ -161,21 +159,24 @@ func create(ctx *context.Context, arch config.Archive, binaries []*artifact.Arti
 		return err
 	}
 
-	var a = NewEnhancedArchive(archive.New(archiveFile), wrap)
+	a := NewEnhancedArchive(archive.New(archiveFile), wrap)
 	defer a.Close()
 
-	files, err := findFiles(template, arch)
+	files, err := findFiles(template, arch.Files)
 	if err != nil {
 		return fmt.Errorf("failed to find files to archive: %w", err)
 	}
 	for _, f := range files {
-		if err = a.Add(f, f); err != nil {
-			return fmt.Errorf("failed to add %s to the archive: %w", f, err)
+		if err = a.Add(f); err != nil {
+			return fmt.Errorf("failed to add: '%s' -> '%s': %w", f.Source, f.Destination, err)
 		}
 	}
 	for _, binary := range binaries {
-		if err := a.Add(binary.Name, binary.Path); err != nil {
-			return fmt.Errorf("failed to add %s -> %s to the archive: %w", binary.Path, binary.Name, err)
+		if err := a.Add(config.File{
+			Source:      binary.Path,
+			Destination: binary.Name,
+		}); err != nil {
+			return fmt.Errorf("failed to add: '%s' -> '%s': %w", binary.Path, binary.Name, err)
 		}
 	}
 	ctx.Artifacts.Add(&artifact.Artifact{
@@ -234,23 +235,64 @@ func skip(ctx *context.Context, archive config.Archive, binaries []*artifact.Art
 	return nil
 }
 
-func findFiles(template *tmpl.Template, archive config.Archive) (result []string, err error) {
-	for _, glob := range archive.Files {
-		replaced, err := template.Apply(glob)
+func findFiles(template *tmpl.Template, files []config.File) ([]config.File, error) {
+	var result []config.File
+	for _, f := range files {
+		replaced, err := template.Apply(f.Source)
 		if err != nil {
-			return result, fmt.Errorf("failed to apply template %s: %w", glob, err)
+			return result, fmt.Errorf("failed to apply template %s: %w", f.Source, err)
 		}
+
 		files, err := fileglob.Glob(replaced)
 		if err != nil {
-			return result, fmt.Errorf("globbing failed for pattern %s: %w", glob, err)
+			return result, fmt.Errorf("globbing failed for pattern %s: %w", f.Source, err)
 		}
-		result = append(result, files...)
+
+		for _, file := range files {
+			result = append(result, config.File{
+				Source:      file,
+				Destination: destinationFor(f, file),
+				Info:        f.Info,
+			})
+		}
 	}
-	// remove duplicates
-	unique.Slice(&result, func(i, j int) bool {
-		return strings.Compare(result[i], result[j]) < 0
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Destination < result[j].Destination
 	})
-	return
+
+	return unique(result), nil
+}
+
+// remove duplicates
+func unique(in []config.File) []config.File {
+	var result []config.File
+	exist := map[string]string{}
+	for _, f := range in {
+		if current := exist[f.Destination]; current != "" {
+			log.Warnf(
+				"file '%s' already exists in archive as '%s' - '%s' will be ignored",
+				f.Destination,
+				current,
+				f.Source,
+			)
+			continue
+		}
+		exist[f.Destination] = f.Source
+		result = append(result, f)
+	}
+
+	return result
+}
+
+func destinationFor(f config.File, path string) string {
+	if f.Destination == "" {
+		return path
+	}
+	if f.StripParent {
+		return filepath.Join(f.Destination, filepath.Base(path))
+	}
+	return filepath.Join(f.Destination, path)
 }
 
 func packageFormat(archive config.Archive, platform string) string {
@@ -282,14 +324,19 @@ type EnhancedArchive struct {
 }
 
 // Add adds a file.
-func (d EnhancedArchive) Add(name, path string) error {
-	name = strings.ReplaceAll(filepath.Join(d.wrap, name), "\\", "/")
-	log.Debugf("adding file: %s as %s", path, name)
-	if _, ok := d.files[name]; ok {
-		return fmt.Errorf("file %s already exists in the archive", name)
+func (d EnhancedArchive) Add(f config.File) error {
+	name := strings.ReplaceAll(filepath.Join(d.wrap, f.Destination), "\\", "/")
+	log.Debugf("adding file: %s as %s", f.Source, name)
+	if _, ok := d.files[f.Destination]; ok {
+		return fmt.Errorf("file %s already exists in the archive", f.Destination)
 	}
-	d.files[name] = path
-	return d.a.Add(name, path)
+	d.files[f.Destination] = name
+	ff := config.File{
+		Source:      f.Source,
+		Destination: name,
+		Info:        f.Info,
+	}
+	return d.a.Add(ff)
 }
 
 // Close closes the underlying archive.

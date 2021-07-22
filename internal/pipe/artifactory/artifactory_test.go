@@ -2,7 +2,6 @@ package artifactory
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,18 +35,14 @@ func teardown() {
 	server.Close()
 }
 
-func testMethod(t *testing.T, r *http.Request, want string) {
+func requireMethodPut(t *testing.T, r *http.Request) {
 	t.Helper()
-	if got := r.Method; got != want {
-		t.Errorf("Request method: %v, want %v", got, want)
-	}
+	require.Equal(t, http.MethodPut, r.Method)
 }
 
-func testHeader(t *testing.T, r *http.Request, header, want string) {
+func requireHeader(t *testing.T, r *http.Request, header, want string) {
 	t.Helper()
-	if got := r.Header.Get(header); got != want {
-		t.Errorf("Header.Get(%q) returned %q, want %q", header, got, want)
-	}
+	require.Equal(t, want, r.Header.Get(header))
 }
 
 // TODO: improve all tests bellow by checking wether the mocked handlers
@@ -63,14 +58,14 @@ func TestRunPipe_ModeBinary(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(dist, "mybin"), 0o755))
 	binPath := filepath.Join(dist, "mybin", "mybin")
 	d1 := []byte("hello\ngo\n")
-	require.NoError(t, ioutil.WriteFile(binPath, d1, 0o666))
+	require.NoError(t, os.WriteFile(binPath, d1, 0o666))
 
 	// Dummy artifactories
 	mux.HandleFunc("/example-repo-local/mybin/darwin/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -93,10 +88,10 @@ func TestRunPipe_ModeBinary(t *testing.T) {
 		  }`)
 	})
 	mux.HandleFunc("/example-repo-local/mybin/linux/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -119,10 +114,10 @@ func TestRunPipe_ModeBinary(t *testing.T) {
 		  }`)
 	})
 	mux.HandleFunc("/production-repo-remote/mybin/darwin/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "productionuser" with secret "productionuser-apikey"
-		testHeader(t, r, "Authorization", "Basic cHJvZHVjdGlvbnVzZXI6cHJvZHVjdGlvbnVzZXItYXBpa2V5")
+		requireHeader(t, r, "Authorization", "Basic cHJvZHVjdGlvbnVzZXI6cHJvZHVjdGlvbnVzZXItYXBpa2V5")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -145,10 +140,10 @@ func TestRunPipe_ModeBinary(t *testing.T) {
 		  }`)
 	})
 	mux.HandleFunc("/production-repo-remote/mybin/linux/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "productionuser" with secret "productionuser-apikey"
-		testHeader(t, r, "Authorization", "Basic cHJvZHVjdGlvbnVzZXI6cHJvZHVjdGlvbnVzZXItYXBpa2V5")
+		requireHeader(t, r, "Authorization", "Basic cHJvZHVjdGlvbnVzZXI6cHJvZHVjdGlvbnVzZXItYXBpa2V5")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -217,8 +212,10 @@ func TestRunPipe_ModeArchive(t *testing.T) {
 	folder := t.TempDir()
 	tarfile, err := os.Create(filepath.Join(folder, "bin.tar.gz"))
 	require.NoError(t, err)
+	require.NoError(t, tarfile.Close())
 	debfile, err := os.Create(filepath.Join(folder, "bin.deb"))
 	require.NoError(t, err)
+	require.NoError(t, debfile.Close())
 
 	ctx := context.New(config.Project{
 		ProjectName: "goreleaser",
@@ -254,9 +251,9 @@ func TestRunPipe_ModeArchive(t *testing.T) {
 
 	// Dummy artifactories
 	mux.HandleFunc("/example-repo-local/goreleaser/1.0.0/bin.tar.gz", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
+		requireMethodPut(t, r)
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -280,9 +277,9 @@ func TestRunPipe_ModeArchive(t *testing.T) {
 		uploads.Store("targz", true)
 	})
 	mux.HandleFunc("/example-repo-local/goreleaser/1.0.0/bin.deb", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
+		requireMethodPut(t, r)
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusCreated)
 		fmt.Fprint(w, `{
@@ -318,6 +315,7 @@ func TestRunPipe_ArtifactoryDown(t *testing.T) {
 	folder := t.TempDir()
 	tarfile, err := os.Create(filepath.Join(folder, "bin.tar.gz"))
 	require.NoError(t, err)
+	require.NoError(t, tarfile.Close())
 
 	ctx := context.New(config.Project{
 		ProjectName: "goreleaser",
@@ -393,14 +391,14 @@ func TestRunPipe_BadCredentials(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(dist, "mybin"), 0o755))
 	binPath := filepath.Join(dist, "mybin", "mybin")
 	d1 := []byte("hello\ngo\n")
-	require.NoError(t, ioutil.WriteFile(binPath, d1, 0o666))
+	require.NoError(t, os.WriteFile(binPath, d1, 0o666))
 
 	// Dummy artifactories
 	mux.HandleFunc("/example-repo-local/mybin/darwin/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusUnauthorized)
 		fmt.Fprint(w, `{
@@ -453,14 +451,14 @@ func TestRunPipe_UnparsableErrorResponse(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(dist, "mybin"), 0o755))
 	binPath := filepath.Join(dist, "mybin", "mybin")
 	d1 := []byte("hello\ngo\n")
-	require.NoError(t, ioutil.WriteFile(binPath, d1, 0o666))
+	require.NoError(t, os.WriteFile(binPath, d1, 0o666))
 
 	// Dummy artifactories
 	mux.HandleFunc("/example-repo-local/mybin/darwin/amd64/mybin", func(w http.ResponseWriter, r *http.Request) {
-		testMethod(t, r, http.MethodPut)
-		testHeader(t, r, "Content-Length", "9")
+		requireMethodPut(t, r)
+		requireHeader(t, r, "Content-Length", "9")
 		// Basic auth of user "deployuser" with secret "deployuser-secret"
-		testHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
+		requireHeader(t, r, "Authorization", "Basic ZGVwbG95dXNlcjpkZXBsb3l1c2VyLXNlY3JldA==")
 
 		w.WriteHeader(http.StatusUnauthorized)
 		fmt.Fprint(w, `...{
@@ -538,7 +536,7 @@ func TestRunPipe_UnparsableTarget(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(dist, "mybin"), 0o755))
 	binPath := filepath.Join(dist, "mybin", "mybin")
 	d1 := []byte("hello\ngo\n")
-	require.NoError(t, ioutil.WriteFile(binPath, d1, 0o666))
+	require.NoError(t, os.WriteFile(binPath, d1, 0o666))
 
 	ctx := context.New(config.Project{
 		ProjectName: "mybin",

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/apex/log"
@@ -19,8 +19,12 @@ import (
 	"github.com/goreleaser/goreleaser/pkg/context"
 )
 
-// ErrNoDocker is shown when docker cannot be found in $PATH.
-var ErrNoDocker = errors.New("docker not present in $PATH")
+const (
+	dockerConfigExtra = "DockerConfig"
+
+	useBuildx = "buildx"
+	useDocker = "docker"
+)
 
 // Pipe for docker.
 type Pipe struct{}
@@ -50,6 +54,18 @@ func (Pipe) Default(ctx *context.Context) error {
 			deprecate.Notice(ctx, "docker.builds")
 			docker.IDs = append(docker.IDs, docker.Builds...)
 		}
+		if docker.Buildx {
+			deprecate.Notice(ctx, "docker.use_buildx")
+			if docker.Use == "" {
+				docker.Use = useBuildx
+			}
+		}
+		if docker.Use == "" {
+			docker.Use = useDocker
+		}
+		if err := validateImager(docker.Use); err != nil {
+			return err
+		}
 		for _, f := range docker.Files {
 			if f == "." || strings.HasPrefix(f, ctx.Config.Dist) {
 				return fmt.Errorf("invalid docker.files: can't be . or inside dist folder: %s", f)
@@ -59,14 +75,24 @@ func (Pipe) Default(ctx *context.Context) error {
 	return nil
 }
 
+func validateImager(use string) error {
+	valid := make([]string, 0, len(imagers))
+	for k := range imagers {
+		valid = append(valid, k)
+	}
+	for _, s := range valid {
+		if s == use {
+			return nil
+		}
+	}
+	sort.Strings(valid)
+	return fmt.Errorf("docker: invalid use: %s, valid options are %v", use, valid)
+}
+
 // Run the pipe.
 func (Pipe) Run(ctx *context.Context) error {
 	if len(ctx.Config.Dockers) == 0 || len(ctx.Config.Dockers[0].ImageTemplates) == 0 {
 		return pipe.ErrSkipDisabledPipe
-	}
-	_, err := exec.LookPath("docker")
-	if err != nil {
-		return ErrNoDocker
 	}
 	return doRun(ctx)
 }
@@ -116,12 +142,14 @@ func process(ctx *context.Context, docker config.Docker, artifacts []*artifact.A
 	if err != nil {
 		return fmt.Errorf("failed to create temporary dir: %w", err)
 	}
-	log.Debug("tempdir: " + tmp)
 
 	images, err := processImageTemplates(ctx, docker)
 	if err != nil {
 		return err
 	}
+
+	log := log.WithField("image", images[0])
+	log.Debug("tempdir: " + tmp)
 
 	if err := os.Link(docker.Dockerfile, filepath.Join(tmp, "Dockerfile")); err != nil {
 		return fmt.Errorf("failed to link dockerfile: %w", err)
@@ -145,7 +173,8 @@ func process(ctx *context.Context, docker config.Docker, artifacts []*artifact.A
 		return err
 	}
 
-	if err := dockerBuild(ctx, tmp, images, buildFlags, docker.Buildx); err != nil {
+	log.Info("building docker image")
+	if err := imagers[docker.Use].Build(ctx, tmp, images, buildFlags); err != nil {
 		return err
 	}
 
@@ -166,6 +195,9 @@ func process(ctx *context.Context, docker config.Docker, artifacts []*artifact.A
 			Goarch: docker.Goarch,
 			Goos:   docker.Goos,
 			Goarm:  docker.Goarm,
+			Extra: map[string]interface{}{
+				dockerConfigExtra: docker,
+			},
 		})
 	}
 	return nil
@@ -229,42 +261,12 @@ func link(src, dest string) error {
 	})
 }
 
-func dockerBuild(ctx *context.Context, root string, images, flags []string, buildx bool) error {
-	log.WithField("image", images[0]).WithField("buildx", buildx).Info("building docker image")
-	/* #nosec */
-	cmd := exec.CommandContext(ctx, "docker", buildCommand(buildx, images, flags)...)
-	cmd.Dir = root
-	log.WithField("cmd", cmd.Args).WithField("cwd", cmd.Dir).Debug("running")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to build docker image: %s: \n%s: %w", images[0], string(out), err)
-	}
-	log.Debugf("docker build output: \n%s", string(out))
-	return nil
-}
-
-func buildCommand(buildx bool, images, flags []string) []string {
-	base := []string{"build", "."}
-	if buildx {
-		base = []string{"buildx", "build", ".", "--load"}
-	}
-	for _, image := range images {
-		base = append(base, "-t", image)
-	}
-	base = append(base, flags...)
-	return base
-}
-
 func dockerPush(ctx *context.Context, image *artifact.Artifact) error {
 	log.WithField("image", image.Name).Info("pushing docker image")
-	/* #nosec */
-	cmd := exec.CommandContext(ctx, "docker", "push", image.Name)
-	log.WithField("cmd", cmd.Args).Debug("running")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to push docker image: \n%s: %w", string(out), err)
+	docker := image.Extra[dockerConfigExtra].(config.Docker)
+	if err := imagers[docker.Use].Push(ctx, image.Name, docker.PushFlags); err != nil {
+		return err
 	}
-	log.Debugf("docker push output: \n%s", string(out))
 	ctx.Artifacts.Add(&artifact.Artifact{
 		Type:   artifact.DockerImage,
 		Name:   image.Name,

@@ -18,7 +18,7 @@ func TestFillBasicData(t *testing.T) {
 	testlib.GitInit(t)
 	testlib.GitRemoteAdd(t, "git@github.com:goreleaser/goreleaser.git")
 
-	var ctx = &context.Context{
+	ctx := &context.Context{
 		TokenType: context.TokenTypeGitHub,
 		Config:    config.Project{},
 	}
@@ -47,7 +47,7 @@ func TestFillPartial(t *testing.T) {
 	testlib.GitInit(t)
 	testlib.GitRemoteAdd(t, "git@github.com:goreleaser/goreleaser.git")
 
-	var ctx = &context.Context{
+	ctx := &context.Context{
 		Config: config.Project{
 			GitHubURLs: config.GitHubURLs{
 				Download: "https://github.company.com",
@@ -61,8 +61,8 @@ func TestFillPartial(t *testing.T) {
 			},
 			Archives: []config.Archive{
 				{
-					Files: []string{
-						"glob/*",
+					Files: []config.File{
+						{Source: "glob/*"},
 					},
 				},
 			},

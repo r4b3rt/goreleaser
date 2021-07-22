@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -95,7 +98,7 @@ func doRun(ctx *context.Context, cl client.Client) error {
 		return ErrNoWindows
 	}
 
-	path := scoop.Name + ".json"
+	filename := scoop.Name + ".json"
 
 	data, err := dataFor(ctx, cl, archives)
 	if err != nil {
@@ -106,11 +109,17 @@ func doRun(ctx *context.Context, cl client.Client) error {
 		return err
 	}
 
-	if ctx.SkipPublish {
-		return pipe.ErrSkipPublishEnabled
+	distPath := filepath.Join(ctx.Config.Dist, filename)
+	log.WithField("manifest", distPath).Info("writing")
+	if err := os.WriteFile(distPath, content.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("failed to write scoop manifest: %w", err)
 	}
+
 	if strings.TrimSpace(scoop.SkipUpload) == "true" {
 		return pipe.Skip("scoop.skip_upload is true")
+	}
+	if ctx.SkipPublish {
+		return pipe.ErrSkipPublishEnabled
 	}
 	if strings.TrimSpace(scoop.SkipUpload) == "auto" && ctx.Semver.Prerelease != "" {
 		return pipe.Skip("release is prerelease")
@@ -134,7 +143,7 @@ func doRun(ctx *context.Context, cl client.Client) error {
 		scoop.CommitAuthor,
 		repo,
 		content.Bytes(),
-		path,
+		path.Join(scoop.Folder, filename),
 		commitMessage,
 	)
 }

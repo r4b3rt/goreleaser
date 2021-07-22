@@ -13,6 +13,7 @@ import (
 )
 
 func TestWithArtifact(t *testing.T) {
+	t.Parallel()
 	ctx := context.New(config.Project{
 		ProjectName: "proj",
 	})
@@ -46,7 +47,6 @@ func TestWithArtifact(t *testing.T) {
 		"shortcommit":                      "{{.ShortCommit}}",
 		"binary":                           "{{.Binary}}",
 		"proj":                             "{{.ProjectName}}",
-		"":                                 "{{.ArtifactUploadHash}}",
 		"github.com/goreleaser/goreleaser": "{{ .ModulePath }}",
 	} {
 		tmpl := tmpl
@@ -70,24 +70,6 @@ func TestWithArtifact(t *testing.T) {
 			require.Equal(t, expect, result)
 		})
 	}
-
-	t.Run("artifact with gitlab ArtifactUploadHash", func(t *testing.T) {
-		t.Parallel()
-		uploadHash := "820ead5d9d2266c728dce6d4d55b6460"
-		result, err := New(ctx).WithArtifact(
-			&artifact.Artifact{
-				Name:   "another-binary",
-				Goarch: "amd64",
-				Goos:   "linux",
-				Goarm:  "6",
-				Extra: map[string]interface{}{
-					"ArtifactUploadHash": uploadHash,
-				},
-			}, map[string]string{},
-		).Apply("{{ .ArtifactUploadHash }}")
-		require.NoError(t, err)
-		require.Equal(t, uploadHash, result)
-	})
 
 	t.Run("artifact without binary name", func(t *testing.T) {
 		t.Parallel()
@@ -158,6 +140,9 @@ func TestWithEnv(t *testing.T) {
 func TestFuncMap(t *testing.T) {
 	ctx := context.New(config.Project{
 		ProjectName: "proj",
+		Env: []string{
+			"FOO=bar",
+		},
 	})
 	wd, err := os.Getwd()
 	require.NoError(t, err)
@@ -172,6 +157,16 @@ func TestFuncMap(t *testing.T) {
 			Template: `{{ replace "v1.24" "v" "" }}`,
 			Name:     "replace",
 			Expected: "1.24",
+		},
+		{
+			Template: `{{ if index .Env "SOME_ENV"  }}{{ .Env.SOME_ENV }}{{ else }}default value{{ end }}`,
+			Name:     "default value",
+			Expected: "default value",
+		},
+		{
+			Template: `{{ if index .Env "FOO"  }}{{ .Env.FOO }}{{ else }}default value{{ end }}`,
+			Name:     "default value set",
+			Expected: "bar",
 		},
 		{
 			Template: `{{ time "2006-01-02" }}`,

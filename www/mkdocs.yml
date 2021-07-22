@@ -14,8 +14,6 @@ theme:
   favicon: static/favicon.ico
   include_search_page: false
   search_index_only: true
-  features:
-    - navigation.instant
   palette:
     - media: "(prefers-color-scheme: light)"  # Light mode
       scheme: default
@@ -24,12 +22,13 @@ theme:
         name: Switch to light mode
     - media: "(prefers-color-scheme: dark)"  # Dark mode
       scheme: slate
+      primary: light blue
+      accent: indigo
       toggle:
         icon: material/lightbulb
         name: Switch to dark mode
 
 plugins:
-  # disable temporarely because its freezing the page
   - search:
       prebuild_index: python
       lang:
@@ -44,19 +43,18 @@ extra:
     - icon: fontawesome/brands/twitter
       link: https://twitter.com/goreleaser
 
-google_analytics:
-  - UA-106198408-1
-  - auto
-
 nav:
 - Home: index.md
 - intro.md
 - install.md
 - quick-start.md
-- environment.md
 - Limitations:
   - limitations/cgo.md
   - limitations/semver.md
+- SCM:
+  - scm/github.md
+  - scm/gitlab.md
+  - scm/gitea.md
 - Continuous Integration:
   - About: ci/index.md
   - ci/actions.md
@@ -71,18 +69,23 @@ nav:
   - ci/travis.md
 - Customization:
   - About: customization/index.md
+  - customization/announce.md
   - customization/archive.md
   - customization/artifactory.md
   - customization/blob.md
   - customization/build.md
   - customization/checksum.md
+  - customization/dist.md
   - customization/docker.md
   - customization/docker_manifest.md
   - customization/env.md
+  - customization/fury.md
   - customization/gomod.md
   - customization/homebrew.md
   - customization/hooks.md
+  - customization/includes.md
   - customization/milestone.md
+  - customization/monorepo.md
   - customization/nfpm.md
   - customization/project.md
   - customization/publishers.md
@@ -105,13 +108,16 @@ nav:
 - Cookbooks:
   - About: cookbooks/index.md
   - Blog Posts: cookbooks/blog-posts.md
+  - Add a new cookbook: cookbooks/contributing.md
   - cookbooks//build-go-modules.md
   - cookbooks/cgo-and-crosscompiling.md
   - cookbooks/debconf-templates.md
   - cookbooks/publish-to-nexus.md
   - cookbooks/release-a-library.md
   - cookbooks/semantic-release.md
-  - cookbooks/upload-to-bintray.md
+  - cookbooks/set-a-custom-git-tag.md
+  - cookbooks/using-main.version.md
+- pro.md
 - sponsors.md
 - contributing.md
 - links.md

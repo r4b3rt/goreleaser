@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -161,7 +161,7 @@ func doRun(ctx *context.Context, brew config.Homebrew, cl client.Client) error {
 	filename := brew.Name + ".rb"
 	path := filepath.Join(ctx.Config.Dist, filename)
 	log.WithField("formula", path).Info("writing")
-	if err := ioutil.WriteFile(path, []byte(content), 0o644); err != nil { //nolint: gosec
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint: gosec
 		return fmt.Errorf("failed to write brew formula: %w", err)
 	}
 
@@ -198,8 +198,21 @@ func buildFormula(ctx *context.Context, brew config.Homebrew, client client.Clie
 	return doBuildFormula(ctx, data)
 }
 
+func fixDataDownloads(data templateData) templateData {
+	data.HasMacOSDownloads = data.MacOSAmd64.DownloadURL != "" || data.MacOSArm64.DownloadURL != ""
+	data.HasLinuxDownloads = data.LinuxAmd64.DownloadURL != "" || data.LinuxArm64.DownloadURL != "" || data.LinuxArm.DownloadURL != ""
+	return data
+}
+
 func doBuildFormula(ctx *context.Context, data templateData) (string, error) {
-	t, err := template.New(data.Name).Parse(formulaTemplate)
+	data = fixDataDownloads(data)
+
+	t, err := template.
+		New(data.Name).
+		Funcs(template.FuncMap{
+			"join": strings.Join,
+		}).
+		Parse(formulaTemplate)
 	if err != nil {
 		return "", err
 	}
@@ -320,9 +333,14 @@ func split(s string) []string {
 	return strings
 }
 
+// formulaNameFor transforms the formula name into a form
+// that more resembles a valid Ruby class name
+// e.g. foo_bar@v6.0.0-rc is turned into FooBarATv6_0_0RC
+// The order of these replacements is important
 func formulaNameFor(name string) string {
 	name = strings.ReplaceAll(name, "-", " ")
 	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, ".", "_")
 	name = strings.ReplaceAll(name, "@", "AT")
 	return strings.ReplaceAll(strings.Title(name), " ", "")
 }

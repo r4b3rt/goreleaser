@@ -73,13 +73,18 @@ type Context struct {
 	Date               time.Time
 	Artifacts          artifact.Artifacts
 	ReleaseNotes       string
-	ReleaseHeader      string
-	ReleaseFooter      string
+	ReleaseNotesFile   string
+	ReleaseNotesTmpl   string
+	ReleaseHeaderFile  string
+	ReleaseHeaderTmpl  string
+	ReleaseFooterFile  string
+	ReleaseFooterTmpl  string
 	Version            string
 	ModulePath         string
 	Snapshot           bool
 	SkipPostBuildHooks bool
 	SkipPublish        bool
+	SkipAnnounce       bool
 	SkipSign           bool
 	SkipValidate       bool
 	RmDist             bool
@@ -122,6 +127,7 @@ func Wrap(ctx ctx.Context, config config.Project) *Context {
 }
 
 func splitEnv(env []string) map[string]string {
+	// TODO: this might panic if there is no `=` sign
 	r := map[string]string{}
 	for _, e := range env {
 		p := strings.SplitN(e, "=", 2)

@@ -11,6 +11,7 @@ goreleaser check [flags]
 ```
   -f, --config string   Configuration file to check
   -h, --help            help for check
+  -q, --quiet           Quiet mode: no output
 ```
 
 ## Options inherited from parent commands
@@ -21,5 +22,5 @@ goreleaser check [flags]
 
 ## See also
 
-* [goreleaser](/cmd/goreleaser)	 - Deliver Go binaries as fast and easily as possible
+* [goreleaser](/cmd/goreleaser/)	 - Deliver Go binaries as fast and easily as possible
 
